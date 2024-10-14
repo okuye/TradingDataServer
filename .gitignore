@@ -1,0 +1,8 @@
+# Ignore the Data directory
+Data/
+
+# Ignore the .idea directory (for JetBrains IDEs like PyCharm)
+.idea/
+
+# Ignore Python cache directories
+__pycache__/
