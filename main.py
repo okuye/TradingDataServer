@@ -128,8 +128,9 @@ def convert_trades_to_response(trades: pd.DataFrame) -> dict:
 TRADES_DF = load_trades_from_file(
     "/Users/olakunlekuye/Documents/Dev/KLX/TradingDataServer/Data/nasdaq-data-2023-eur-usd.json")
 
+
 # API key for validation
-VALID_API_KEY = "Ee-osjmRSwyXkPA3QBFe"
+VALID_API_KEY = ""
 
 
 # Define the GET /trades endpoint
@@ -156,3 +157,7 @@ def get_trades(startDate: str, endDate: str, symbol: Optional[str] = None, api_k
     response = convert_trades_to_response(filtered_trades)
 
     return response
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
