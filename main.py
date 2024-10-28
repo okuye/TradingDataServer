@@ -5,53 +5,45 @@ import json
 from typing import Optional
 from datetime import datetime
 
-# Initialize FastAPI app
 app = FastAPI()
 
 
-# Define a function to convert the array to a dictionary (similar to a Trade case class)
+# Function to convert the array to a dictionary while handling missing fields
 def from_array(arr):
+    # Define the default values for each field
+    defaults = {
+        'symbol': None,
+        'date': None,
+        'hour': None,
+        'openbid': None,
+        'highbid': None,
+        'lowbid': None,
+        'closebid': None,
+        'openask': None,
+        'highask': None,
+        'lowask': None,
+        'closeask': None,
+        'totalticks': None
+    }
+
+    # Map the incoming array values to the expected fields, using default values for missing fields
     try:
         return {
-            'symbol': str(arr[0]),
-            'date': pd.to_datetime(str(arr[1]), format='%Y-%m-%d'),
-            'hour': int(arr[2]),
-            'openbid': float(arr[3]),
-            'highbid': float(arr[4]),
-            'lowbid': float(arr[5]),
-            'closebid': float(arr[6]),
-            'openask': float(arr[7]),
-            'highask': float(arr[8]),
-            'lowask': float(arr[9]),
-            'closeask': float(arr[10]),
-            'totalticks': int(arr[11])
+            'symbol': str(arr[0]) if len(arr) > 0 else defaults['symbol'],
+            'date': pd.to_datetime(arr[1], format='%Y-%m-%d', errors='coerce') if len(arr) > 1 else defaults['date'],
+            'hour': int(arr[2]) if len(arr) > 2 and arr[2] is not None else defaults['hour'],
+            'openbid': float(arr[3]) if len(arr) > 3 and arr[3] is not None else defaults['openbid'],
+            'highbid': float(arr[4]) if len(arr) > 4 and arr[4] is not None else defaults['highbid'],
+            'lowbid': float(arr[5]) if len(arr) > 5 and arr[5] is not None else defaults['lowbid'],
+            'closebid': float(arr[6]) if len(arr) > 6 and arr[6] is not None else defaults['closebid'],
+            'openask': float(arr[7]) if len(arr) > 7 and arr[7] is not None else defaults['openask'],
+            'highask': float(arr[8]) if len(arr) > 8 and arr[8] is not None else defaults['highask'],
+            'lowask': float(arr[9]) if len(arr) > 9 and arr[9] is not None else defaults['lowask'],
+            'closeask': float(arr[10]) if len(arr) > 10 and arr[10] is not None else defaults['closeask'],
+            'totalticks': int(arr[11]) if len(arr) > 11 and arr[11] is not None else defaults['totalticks'],
         }
     except (ValueError, IndexError) as e:
         raise ValueError(f"Error converting array to Trade: {e}")
-
-
-# Function to handle multiple concatenated JSON objects by splitting
-def parse_json_objects(file_path: str):
-    with open(file_path, 'r') as f:
-        content = f.read()
-
-    # Handle multiple concatenated JSON objects by splitting at '}{'
-    raw_json_objects = content.split('}{')
-    parsed_objects = []
-
-    for i, obj in enumerate(raw_json_objects):
-        if i > 0:  # Add back the leading '{' for all but the first object
-            obj = '{' + obj
-        if i < len(raw_json_objects) - 1:  # Add back the trailing '}' for all but the last object
-            obj = obj + '}'
-
-        try:
-            parsed_obj = json.loads(obj)
-            parsed_objects.append(parsed_obj)
-        except json.JSONDecodeError as e:
-            print(f"Error parsing JSON object {i}: {e}")
-
-    return parsed_objects
 
 
 # Function to load trades from parsed JSON objects
@@ -59,15 +51,15 @@ def load_trades_from_file(file_path: str) -> pd.DataFrame:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File {file_path} not found.")
 
-    trades = []
-    for json_obj in parse_json_objects(file_path):
-        if "datatable" in json_obj:
-            trades_data = json_obj['datatable']['data']
-            trades.extend([from_array(row) for row in trades_data])
+    with open(file_path, 'r') as f:
+        content = json.load(f)
 
-    # Print the number of trades parsed for debug
-    print(f"Parsed {len(trades)} trades.")
+    trades_data = content['datatable']['data']
 
+    # Use the from_array function to handle each row
+    trades = [from_array(row) for row in trades_data]
+
+    # Convert to DataFrame
     columns = [
         'symbol', 'date', 'hour', 'openbid', 'highbid', 'lowbid',
         'closebid', 'openask', 'highask', 'lowask', 'closeask', 'totalticks'
@@ -76,68 +68,62 @@ def load_trades_from_file(file_path: str) -> pd.DataFrame:
     return pd.DataFrame(trades, columns=columns)
 
 
+# Function to load all JSON files in a directory and concatenate into a single DataFrame
+def load_all_trades(directory_path: str) -> pd.DataFrame:
+    all_trades = pd.DataFrame()
+
+    # Initialize a list to store file names
+    file_names = []
+
+    # Iterate over all .json files in the directory
+    for filename in os.listdir(directory_path):
+        if filename.endswith(".json"):
+            file_path = os.path.join(directory_path, filename)
+            file_names.append(filename)  # Add the file name to the list
+
+            try:
+                trades_df = load_trades_from_file(file_path)
+                all_trades = pd.concat([all_trades, trades_df], ignore_index=True)
+            except Exception as e:
+                print(f"Error loading {file_path}: {e}")
+
+    # Print all the files that were read
+    print(f"Files read from directory {directory_path}: {file_names}")
+
+    # Print the total number of trades loaded
+    print(f"Total trades loaded: {len(all_trades)}")
+
+    # Print the date range available in the dataset
+    if not all_trades.empty:
+        print(f"Date range in dataset: {all_trades['date'].min()} to {all_trades['date'].max()}")
+
+    # Print available symbols in the dataset
+    print(f"Available symbols: {all_trades['symbol'].unique() if not all_trades.empty else 'No data'}")
+
+    return all_trades
+
+
+# Load all trades once when the app starts
+TRADES_DF = load_all_trades("/Users/olakunlekuye/Documents/Dev/KLX/Nasdaq-Data")
+
+
 # Function to filter trades based on date range and symbol
 def filter_trades(trades: pd.DataFrame, start_date: str, end_date: str, symbol: Optional[str] = None) -> pd.DataFrame:
     start_date = pd.to_datetime(start_date, format='%Y-%m-%d')
     end_date = pd.to_datetime(end_date, format='%Y-%m-%d')
 
-    # Filter by date range and symbol (if provided)
-    filtered_trades = trades[
-        (trades['date'] >= start_date) &
-        (trades['date'] <= end_date)
-        ]
+    filtered_trades = trades[(trades['date'] >= start_date) & (trades['date'] <= end_date)]
 
     if symbol:
         filtered_trades = filtered_trades[filtered_trades['symbol'] == symbol]
 
-    # Print number of filtered trades for debug
-    print(f"Filtered {len(filtered_trades)} trades.")
-
     return filtered_trades
 
 
-# Function to convert filtered trades to response format
-def convert_trades_to_response(trades: pd.DataFrame) -> dict:
-    columns = [
-        {'name': 'symbol', 'type': 'String'},
-        {'name': 'date', 'type': 'Date'},
-        {'name': 'hour', 'type': 'Integer'},
-        {'name': 'openbid', 'type': 'double'},
-        {'name': 'highbid', 'type': 'double'},
-        {'name': 'lowbid', 'type': 'double'},
-        {'name': 'closebid', 'type': 'double'},
-        {'name': 'openask', 'type': 'double'},
-        {'name': 'highask', 'type': 'double'},
-        {'name': 'lowask', 'type': 'double'},
-        {'name': 'closeask', 'type': 'double'},
-        {'name': 'totalticks', 'type': 'Integer'}
-    ]
-
-    trade_data = trades.to_dict(orient='records')
-
-    return {
-        'datatable': {
-            'data': trade_data,
-            'columns': columns
-        },
-        'meta': {'next_cursor_id': None}
-    }
-
-
-# Load trades data once when the API starts (to avoid reloading every request)
-TRADES_DF = load_trades_from_file(
-    "/Users/olakunlekuye/Documents/Dev/KLX/TradingDataServer/Data/nasdaq-data-2023-eur-usd.json")
-
-
-# API key for validation
-VALID_API_KEY = ""
-
-
-# Define the GET /trades endpoint
 @app.get("/trades")
 def get_trades(startDate: str, endDate: str, symbol: Optional[str] = None, api_key: Optional[str] = Query(None)):
     # Validate API key
-    if api_key != VALID_API_KEY:
+    if api_key != "Ee-osjmRSwyXkPA3QBFe":
         raise HTTPException(status_code=403, detail="Invalid API key")
 
     # Validate date format
@@ -147,17 +133,9 @@ def get_trades(startDate: str, endDate: str, symbol: Optional[str] = None, api_k
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Expected 'YYYY-MM-DD'")
 
-    # Filter trades by date range and symbol
-    try:
-        filtered_trades = filter_trades(TRADES_DF, startDate, endDate, symbol)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error filtering trades: {e}")
+    # Filter trades
+    filtered_trades = filter_trades(TRADES_DF, startDate, endDate, symbol)
 
-    # Convert the filtered trades to the response format
-    response = convert_trades_to_response(filtered_trades)
-
-    return response
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Return filtered trades
+    return filtered_trades.to_dict(orient='records')
 
